@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="theme-color" content="#0f172a"/>
+  <meta name="description" content="Carte Topographique 3D Interactive - Grand Tour de Zaghfouland & Itzer (Moyen Atlas, Maroc) - 105 km, 4 étapes"/>
+  <title>Rando 3D Itzer – Moyen Atlas</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="stylesheet" href="lib/maplibre-gl.css"/>
+  <link rel="stylesheet" href="style.css?v=3.0"/>
+  <!-- ArcGIS stylesheet preconnect for fast on-demand loading -->
+  <link rel="preconnect" href="https://js.arcgis.com" crossorigin/>
+</head>
+<body>
+
+  <!-- =====================================================================
+       SPLASH / LOADING SCREEN
+       ===================================================================== -->
+  <div id="splash-screen" class="splash-screen">
+    <div class="splash-content">
+      <div class="splash-mountain">
+        <svg viewBox="0 0 400 160" xmlns="http://www.w3.org/2000/svg" class="mountain-svg">
+          <polygon points="200,10 310,130 90,130" fill="rgba(6,182,212,0.12)" stroke="rgba(6,182,212,0.4)" stroke-width="1.5"/>
+          <polygon points="130,50 230,130 30,130" fill="rgba(6,182,212,0.07)" stroke="rgba(6,182,212,0.2)" stroke-width="1"/>
+          <polygon points="280,35 380,130 180,130" fill="rgba(6,182,212,0.07)" stroke="rgba(6,182,212,0.2)" stroke-width="1"/>
+          <!-- Snow cap -->
+          <polygon points="200,10 220,42 180,42" fill="rgba(255,255,255,0.5)"/>
+        </svg>
+      </div>
+      <div class="splash-brand">
+        <div class="splash-icon">⛰️</div>
+        <h1 class="splash-title">ITZER 3D</h1>
+        <div class="splash-subtitle">Grand Tour de Zaghfouland · Moyen Atlas</div>
+      </div>
+      <div class="splash-loading-text" id="splash-status">Chargement du relief 3D Moyen Atlas...</div>
+      <div class="splash-accent-line"></div>
+      <div class="splash-progress-wrap">
+        <div class="splash-progress-bar" id="splash-progress-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       TOAST NOTIFICATION SYSTEM
+       ===================================================================== -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- =====================================================================
+       COMMAND PALETTE (Ctrl+K)
+       ===================================================================== -->
+  <div id="command-palette" class="command-palette-overlay" style="display:none;">
+    <div class="command-palette-modal">
+      <div class="command-palette-header">
+        <span class="command-palette-icon">⌨️</span>
+        <input type="text" id="command-palette-input" class="command-palette-input"
+               placeholder="Rechercher : Col du Zad, GPS, Étape 2, Météo, Topoguide..." autocomplete="off"/>
+        <kbd class="command-palette-esc">ESC</kbd>
+      </div>
+      <div id="command-palette-results" class="command-palette-results"></div>
+      <div class="command-palette-footer">
+        <span>↑↓ Naviguer</span><span>↵ Exécuter</span><span>Esc Fermer</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       KEYBOARD SHORTCUTS MODAL
+       ===================================================================== -->
+  <div id="shortcuts-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card shortcuts-card">
+      <div class="modal-header">
+        <span style="font-weight:700;font-size:15px;">⌨️ Raccourcis Clavier</span>
+        <button class="modal-close-btn" id="btn-close-shortcuts">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="shortcuts-grid">
+          <div class="shortcut-row"><kbd>W</kbd><kbd>S</kbd><span>Walker avant / arrière</span></div>
+          <div class="shortcut-row"><kbd>Space</kbd><span>Survol drone 3D cinématique</span></div>
+          <div class="shortcut-row"><kbd>M</kbd><span>Mode mesure 3D</span></div>
+          <div class="shortcut-row"><kbd>Ctrl+K</kbd><span>Palette de commandes</span></div>
+          <div class="shortcut-row"><kbd>Esc</kbd><span>Quitter le mode actuel / Fermer</span></div>
+          <div class="shortcut-row"><kbd>1</kbd>–<kbd>4</kbd><span>Sélectionner une étape du Grand Tour</span></div>
+          <div class="shortcut-row"><kbd>Q</kbd>–<kbd>U</kbd><span>Boucles Zaghfouland (10–30 km)</span></div>
+          <div class="shortcut-row"><kbd>F</kbd><span>Plein écran immersif (Zen Mode)</span></div>
+          <div class="shortcut-row"><kbd>B</kbd><span>Bivouac Étoilé (nuit / jour)</span></div>
+          <div class="shortcut-row"><kbd>G</kbd><span>GPS on / off</span></div>
+          <div class="shortcut-row"><kbd>?</kbd><span>Afficher ces raccourcis</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       MAIN VIEWPORT
+       ===================================================================== -->
+  <div id="viewport-container">
+    <canvas id="three-canvas"></canvas>
+    <div id="maplibre-container"></div>
+    <div id="arcgis-container" style="position:absolute;top:0;left:0;width:100%;height:100%;display:none;z-index:2;"></div>
+  </div>
+
+  <!-- =====================================================================
+       TOP NAVIGATION BAR
+       ===================================================================== -->
+  <header class="top-bar glass-panel">
+    <div class="brand">
+      <div class="brand-icon">⛰️</div>
+      <div class="brand-info">
+        <h1>Rando 3D Itzer <span class="badge">MOYEN ATLAS</span></h1>
+        <p class="brand-subtitle">Grand Tour de Zaghfouland · Maroc · 105 km · 4 Étapes</p>
+      </div>
+    </div>
+
+    <div class="kpi-container">
+      <div class="kpi-item">
+        <span class="kpi-label">Périmètre</span>
+        <span class="kpi-val" id="kpi-perimeter">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Superficie</span>
+        <span class="kpi-val" id="kpi-area">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">D+ Cumulé</span>
+        <span class="kpi-val" id="kpi-gain">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Alt. Min/Max</span>
+        <span class="kpi-val" id="kpi-alt">—</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <!-- Search / Command palette trigger -->
+      <button class="btn" id="btn-command-palette" title="Palette de commandes (Ctrl+K)" data-tooltip="Recherche rapide POI, étapes, outils">
+        🔍 <span>Recherche</span>
+      </button>
+      <button class="btn" id="btn-gps" data-tooltip="Activer la géolocalisation GPS en temps réel">
+        📍 <span>GPS</span>
+      </button>
+      <button class="btn" id="btn-weather" data-tooltip="Météo haute montagne en direct (Open-Meteo)">
+        🌤️ <span>Météo</span>
+      </button>
+      <button class="btn" id="btn-topoguide" data-tooltip="Guide imprimable du trek 4 étapes">
+        📋 <span>Topoguide</span>
+      </button>
+      <button class="btn" id="btn-boucles-zaghfouland" data-tooltip="5 Boucles de 10, 15, 20, 25 et 30 km depuis Zaghfouland">
+        🔄 <span>Circuits</span>
+      </button>
+      <button class="btn btn-primary" id="btn-switch-engine" data-tooltip="Basculer vers la vue carte MapLibre GL">
+        🌐 <span>Mode Carte Globale</span>
+      </button>
+      <button class="btn" id="btn-switch-arcgis" data-tooltip="Vue ArcGIS – Imagerie satellite Esri + élévation">
+        🗺️ <span>ArcGIS</span>
+      </button>
+      <button class="btn" id="btn-share" data-tooltip="Partager via QR code">
+        📲 <span>Partager</span>
+      </button>
+      <button class="btn" id="btn-bivouac-celeste" title="Mode Bivouac sous les étoiles (Touche B)" data-tooltip="Passer en mode nuit étoilée sous la Voie Lactée à Zaghfouland">
+        🌌 <span>Bivouac Étoilé</span>
+      </button>
+      <button class="btn" id="btn-fullscreen" title="Mode Plein Écran Immersif (Touche F)" data-tooltip="Plein écran immersif (Touche F)">
+        ⛶ <span>Plein Écran</span>
+      </button>
+      <!-- Keyboard shortcuts help -->
+      <button class="btn" id="btn-shortcuts" title="Raccourcis clavier" data-tooltip="Afficher les raccourcis clavier">⌨️</button>
+      <!-- About -->
+      <button class="btn" id="btn-about" title="À propos de Rando Itzer 3D" data-tooltip="À propos du projet">ℹ️</button>
+    </div>
+  </header>
+
+  <!-- =====================================================================
+       MOBILE FAB BUTTON (Q6 - mobile responsive)
+       ===================================================================== -->
+  <button class="mobile-fab" id="mobile-fab" title="Menu">
+    <span class="fab-icon">⛰️</span>
+  </button>
+
+  <!-- Mobile Bottom Nav (Q6) -->
+  <nav class="mobile-bottom-nav" id="mobile-bottom-nav">
+    <button class="mobile-nav-btn" data-tab-mobile="couches">
+      <span class="mnav-icon">🗺️</span><span class="mnav-label">Cartes</span>
+    </button>
+    <button class="mobile-nav-btn" data-tab-mobile="outils">
+      <span class="mnav-icon">🛠️</span><span class="mnav-label">Outils</span>
+    </button>
+    <button class="mobile-nav-btn" data-tab-mobile="poi">
+      <span class="mnav-icon">📍</span><span class="mnav-label">POI</span>
+    </button>
+    <button class="mobile-nav-btn" data-tab-mobile="etapes">
+      <span class="mnav-icon">🏁</span><span class="mnav-label">Étapes</span>
+    </button>
+    <button class="mobile-nav-btn" data-tab-mobile="boucles">
+      <span class="mnav-icon">🔄</span><span class="mnav-label">Boucles</span>
+    </button>
+  </nav>
+
+  <!-- About Modal (Q17) -->
+  <div id="about-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card about-modal-card">
+      <div class="modal-header">
+        <span style="font-weight:700;font-size:15px;">⛰️ À propos – Rando Itzer 3D</span>
+        <button class="modal-close-btn" id="btn-close-about">✕</button>
+      </div>
+      <div class="modal-body" style="gap:16px;">
+        <div class="about-logo-row">
+          <div class="about-logo-icon">⛰️</div>
+          <div>
+            <h2 class="about-title">ITZER 3D</h2>
+            <p class="about-subtitle">Grand Tour de Zaghfouland · Moyen Atlas · Maroc</p>
+          </div>
+        </div>
+        <p class="about-desc">Application cartographique topographique 3D haute fidélité pour explorer le <strong>Grand Tour de Zaghfouland et Itzer</strong> dans le Moyen Atlas Oriental du Maroc. 105 km, 4 étapes, 5 boucles et des dizaines de POI.</p>
+        <div class="about-stats-grid">
+          <div class="about-stat"><strong>105 km</strong><small>Périmètre</small></div>
+          <div class="about-stat"><strong>5 440 m</strong><small>D+ cumulé</small></div>
+          <div class="about-stat"><strong>2 388 m</strong><small>Alt. max</small></div>
+          <div class="about-stat"><strong>612 km²</strong><small>Surface</small></div>
+        </div>
+        <div class="about-tech-row">
+          <span class="about-tech-badge">Three.js</span>
+          <span class="about-tech-badge">MapLibre GL</span>
+          <span class="about-tech-badge">ArcGIS JS</span>
+          <span class="about-tech-badge">PWA Offline</span>
+          <span class="about-tech-badge">GPX 1.1</span>
+        </div>
+        <div class="about-attribution">
+          <p>📡 Données : OpenStreetMap contributors · DEM SRTM/Copernicus · Esri World Imagery</p>
+          <p>🌤️ Météo : <a href="https://open-meteo.com" target="_blank" style="color:var(--accent);">Open-Meteo API</a> (gratuit, sans clé)</p>
+          <p>🚀 Déployé sur : <a href="https://rando-itzer-3d.vercel.app" target="_blank" style="color:var(--accent);">rando-itzer-3d.vercel.app</a></p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-close-about-footer">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       LEFT SIDEBAR WITH TABS
+       ===================================================================== -->
+  <button class="sidebar-toggle-btn" id="sidebar-toggle">☰</button>
+
+
+  <aside id="sidebar" class="sidebar glass-panel">
+    <!-- Tab Navigation -->
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" data-tab="couches" title="Fonds cartographiques 3D">
+        <span class="tab-icon">🗺️</span>
+        <span class="tab-label">Cartes</span>
+      </button>
+      <button class="sidebar-tab" data-tab="outils" title="Outils de mesure et caméra">
+        <span class="tab-icon">🛠️</span>
+        <span class="tab-label">Outils</span>
+      </button>
+      <button class="sidebar-tab" data-tab="poi" title="Points d'intérêt du trek">
+        <span class="tab-icon">📍</span>
+        <span class="tab-label">POI</span>
+      </button>
+      <button class="sidebar-tab" data-tab="etapes" title="Les 4 Étapes du Grand Tour">
+        <span class="tab-icon">🏁</span>
+        <span class="tab-label">Étapes</span>
+      </button>
+      <button class="sidebar-tab" data-tab="boucles" title="5 Boucles en étoile depuis Zaghfouland">
+        <span class="tab-icon">🔄</span>
+        <span class="tab-label">Boucles</span>
+      </button>
+    </div>
+
+    <!-- ── TAB: COUCHES ────────────────────────────────── -->
+    <div class="sidebar-tab-content" id="tab-couches">
+      <div class="section-title">
+        <span>🗺️ Fond Cartographique 3D</span>
+        <span id="current-layer-name" style="color:var(--accent);font-size:10px;">Satellite Réel</span>
+      </div>
+      <div class="layer-grid">
+        <button class="layer-btn active" data-layer="satellite" title="Imagerie satellite haute résolution" data-tooltip="Imagerie satellite haute résolution Esri World Imagery">
+          <span class="icon">🛰️</span> Satellite
+        </button>
+        <button class="layer-btn" data-layer="topomap" data-tooltip="Courbes de niveau IGN toutes les 50m">
+          <span class="icon">📏</span> Topo 50m
+        </button>
+        <button class="layer-btn" data-layer="slope" data-tooltip="Carte des pentes – danger avalanche">
+          <span class="icon">⚡</span> Pentes
+        </button>
+        <button class="layer-btn" data-layer="hillshade" data-tooltip="Ombrage du relief – modèle numérique">
+          <span class="icon">🌑</span> Ombré
+        </button>
+        <button class="layer-btn" data-layer="osm" data-tooltip="Réseau OpenStreetMap – pistes et routes">
+          <span class="icon">🛣️</span> OSM
+        </button>
+        <button class="layer-btn" data-layer="wireframe" data-tooltip="Fil de fer 3D – géométrie terrain pure">
+          <span class="icon">🔲</span> Fil 3D
+        </button>
+      </div>
+
+      <div class="section-title" style="margin-top:12px;">⚙️ Visibilité</div>
+      <div class="switch-row">
+        <label>Tracé GPS du Circuit</label>
+        <label class="toggle-switch"><input type="checkbox" id="toggle-route" checked/><span class="slider-switch"></span></label>
+      </div>
+      <div class="switch-row">
+        <label>Rubans colorés des Étapes</label>
+        <label class="toggle-switch"><input type="checkbox" id="toggle-fill" checked/><span class="slider-switch"></span></label>
+      </div>
+      <div class="switch-row">
+        <label>Marqueurs POI 3D</label>
+        <label class="toggle-switch"><input type="checkbox" id="toggle-pois" checked/><span class="slider-switch"></span></label>
+      </div>
+      <div class="switch-row">
+        <label>Profil altimétrique</label>
+        <label class="toggle-switch"><input type="checkbox" id="toggle-dock" checked/><span class="slider-switch"></span></label>
+      </div>
+    </div>
+
+    <!-- ── TAB: OUTILS ────────────────────────────────── -->
+    <div class="sidebar-tab-content" id="tab-outils" style="display:none;">
+      <div class="section-title">📐 Outils de Mesure & Navigation</div>
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="btn" id="btn-measure" data-tooltip="Mesurer distance et dénivelé entre deux points sur le terrain 3D" style="font-size:11px;flex:1;">📐 Mesurer</button>
+        <button class="btn" id="btn-measure-reset" data-tooltip="Effacer la mesure en cours" style="font-size:11px;flex:1;">🗑️ Reset</button>
+        <button class="btn" id="btn-drone-tour" data-tooltip="Survol cinématique automatique du massif" style="font-size:11px;flex:1;">🚁 Survol 3D</button>
+      </div>
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="btn" id="btn-walker-view" data-tooltip="Vue immersive depuis le sentier à hauteur d'homme" style="font-size:11px;flex:1;">🚶 Walker</button>
+        <button class="btn" id="btn-water-calc" data-tooltip="Calculer la quantité d'eau à emporter selon l'étape et la météo" style="font-size:11px;flex:1;">💧 Eau</button>
+      </div>
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="btn" id="btn-screenshot" data-tooltip="Capturer la vue 3D en PNG haute résolution" style="font-size:11px;flex:1;">📸 Capture</button>
+        <button class="btn" id="btn-export-geojson" data-tooltip="Exporter le périmètre KMZ en GeoJSON RFC 7946" style="font-size:11px;flex:1;">📥 GeoJSON</button>
+      </div>
+
+      <div class="section-title">🌄 Terrain 3D</div>
+      <div class="control-row">
+        <div class="control-header">
+          <span>Exagération verticals</span>
+          <span class="control-val" id="val-exaggeration">2.0x</span>
+        </div>
+        <input type="range" id="slider-exaggeration" min="0.5" max="5.0" step="0.1" value="2.0"/>
+      </div>
+      <div class="control-row">
+        <div class="control-header">
+          <span>Position du soleil</span>
+          <span class="control-val" id="val-sun">14h00</span>
+        </div>
+        <input type="range" id="slider-sun" min="0" max="24" step="0.5" value="14"/>
+      </div>
+      <div class="control-row">
+        <div class="control-header">
+          <span>Vitesse survol</span>
+          <span class="control-val" id="val-speed">1.0x</span>
+        </div>
+        <input type="range" id="slider-speed" min="0.2" max="3.0" step="0.1" value="1.0"/>
+      </div>
+
+      <div class="section-title" style="margin-top:10px;">🌫️ Atmosphère</div>
+      <div class="switch-row">
+        <label>Brouillard atmosphérique</label>
+        <label class="toggle-switch"><input type="checkbox" id="toggle-fog" checked/><span class="slider-switch"></span></label>
+      </div>
+    </div>
+
+    <!-- ── TAB: POI ────────────────────────────────────── -->
+    <div class="sidebar-tab-content" id="tab-poi" style="display:none;">
+      <div class="section-title">📍 Points d'Intérêt du Circuit</div>
+      <!-- POI search/filter -->
+      <input type="text" id="poi-search-input" class="poi-search-input" placeholder="🔍 Filtrer les POI..." autocomplete="off"/>
+      <div class="poi-quick-filters">
+        <button class="poi-filter-chip active" data-poi-filter="all">Tous</button>
+        <button class="poi-filter-chip" data-poi-filter="water">💧 Sources d'eau</button>
+        <button class="poi-filter-chip" data-poi-filter="bivouac">⛺ Bivouacs</button>
+        <button class="poi-filter-chip" data-poi-filter="summit">⛰️ Sommets</button>
+        <button class="poi-filter-chip" data-poi-filter="cedar">🌲 Cédraies</button>
+      </div>
+      <!-- POI card grid -->
+      <div class="poi-list" id="poi-list"></div>
+    </div>
+
+    <!-- ── TAB: ÉTAPES ─────────────────────────────────── -->
+    <div class="sidebar-tab-content" id="tab-etapes" style="display:none;">
+      <div class="section-title">🏁 Les 4 Étapes du Grand Tour</div>
+      <div class="sidebar-stages" id="sidebar-stages"></div>
+    </div>
+
+    <!-- ── TAB: BOUCLES ZAGHFOULAND ─────────────────────── -->
+    <div class="sidebar-tab-content" id="tab-boucles" style="display:none;">
+      <div class="section-title">
+        <span>🔄 5 Boucles depuis Zaghfouland</span>
+      </div>
+      <p style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;line-height:1.4;">
+        Départ & retour au cœur de Zaghfouland. Haltes de repos ombragées, panoramas d'exception et bivouacs camping sous les étoiles (plein ciel).
+      </p>
+      <div class="sidebar-loops" id="sidebar-loops"></div>
+    </div>
+  </aside>
+
+  <!-- =====================================================================
+       RIGHT: REAL-TIME PROBE HUD
+       ===================================================================== -->
+  <div id="probe-hud" class="probe-hud glass-panel">
+    <div class="probe-title">
+      <div class="probe-dot"></div>
+      Sonde Terrain 3D
+    </div>
+    <div class="probe-grid">
+      <div class="probe-card">
+        <div class="probe-label">Altitude</div>
+        <div class="probe-val" id="probe-ele">— <small>m</small></div>
+      </div>
+      <div class="probe-card">
+        <div class="probe-label">Pente</div>
+        <div class="probe-val" id="probe-slope">—°</div>
+      </div>
+    </div>
+    <div class="probe-gps" id="probe-gps">—° N, —° W</div>
+    <div id="probe-poi-card" style="display:none;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.25);border-radius:6px;padding:6px 8px;font-size:11px;color:#f8fafc;">
+      <span id="probe-poi-text"></span>
+    </div>
+  </div>
+
+  <!-- GPS HUD -->
+  <div id="gps-hud" class="gps-hud glass-panel" style="display:none;">
+    <div class="gps-hud-header">
+      <div class="gps-hud-title">
+        <div class="gps-live-dot"></div> GPS Direct
+      </div>
+      <button class="gps-close-btn" id="btn-close-gps-hud">✕</button>
+    </div>
+    <div class="gps-hud-coords" id="gps-coords">En attente du signal...</div>
+    <div class="gps-hud-metrics">
+      <div class="gps-metric-item">
+        <span class="gps-metric-lbl">Altitude</span>
+        <span class="gps-metric-val" id="gps-alt">— <small>m</small></span>
+      </div>
+      <div class="gps-metric-item">
+        <span class="gps-metric-lbl">Précision</span>
+        <span class="gps-metric-val" id="gps-acc">—</span>
+      </div>
+    </div>
+    <div class="gps-hud-actions">
+      <label class="gps-follow-label">
+        <input type="checkbox" id="toggle-gps-follow" checked/> Suivre sur la carte
+      </label>
+      <button class="btn" id="btn-gps-demo" style="font-size:11px;padding:5px 9px;">🎮 Démo Maroc</button>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       MEASURE MODE HUD
+       ===================================================================== -->
+  <div id="measure-hud" class="measure-hud">
+    <span>📐 Cliquez 2 points sur le terrain pour mesurer</span>
+    <strong id="measure-result">0.0 km</strong>
+    <button class="btn" id="btn-measure-reset" style="font-size:11px;padding:4px 8px;">Reset ✕</button>
+  </div>
+
+  <!-- =====================================================================
+       COMPASS
+       ===================================================================== -->
+  <div id="compass-btn" class="compass-widget" title="Réinitialiser Nord">
+    <div id="compass-needle" class="compass-needle"></div>
+  </div>
+
+  <!-- =====================================================================
+       MINIMAP (bottom-right)
+       ===================================================================== -->
+  <div id="minimap-container" class="minimap-container">
+    <button class="minimap-toggle" id="btn-minimap-toggle" title="Carte de contexte">🗺️</button>
+    <div id="minimap-panel" class="minimap-panel glass-panel">
+      <div class="minimap-header">Maroc – Vue d'ensemble</div>
+      <div id="minimap-content" class="minimap-content">
+        <!-- Static SVG overview of Morocco with zone marker -->
+        <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;">
+          <!-- Morocco rough outline -->
+          <path d="M30,10 L60,8 L90,12 L120,15 L145,20 L165,30 L175,50 L170,75 L160,100 L140,120 L120,135 L100,145 L75,148 L55,140 L35,125 L20,100 L10,70 L15,40 Z"
+                fill="rgba(30,41,59,0.6)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+          <!-- Moyen Atlas zone (approx ~32.8-33.1N, ~5.1-4.8W mapped to SVG) -->
+          <rect id="minimap-zone" x="82" y="68" width="18" height="14"
+                fill="none" stroke="#06b6d4" stroke-width="2"
+                style="filter:drop-shadow(0 0 4px #06b6d4);" rx="2"/>
+          <!-- 3D viewport extent marker (updated via JS) -->
+          <rect id="minimap-viewport" x="84" y="70" width="14" height="10"
+                fill="rgba(6,182,212,0.2)" stroke="#22d3ee" stroke-width="1" rx="1"/>
+          <text x="91" y="90" text-anchor="middle" font-size="6" fill="#06b6d4">ITZER</text>
+          <!-- Labels -->
+          <text x="30" y="50" font-size="7" fill="rgba(255,255,255,0.4)">Maroc</text>
+          <text x="130" y="40" font-size="6" fill="rgba(255,255,255,0.3)">Algérie</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       BOTTOM: ELEVATION PROFILE DOCK
+       ===================================================================== -->
+  <div id="profile-dock" class="profile-dock glass-panel">
+    <div class="profile-header">
+      <div class="profile-header-left">
+        <span class="profile-title">
+          <button id="btn-toggle-dock" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:14px;">▼</button>
+          <span id="dock-title-text">📈 Profil Altimétrique du Circuit (Périmètre KMZ - 105 km)</span>
+        </span>
+
+        <!-- Stage Selector -->
+        <div class="stage-selector">
+          <button class="stage-btn active" data-stage="all">
+            <span class="stage-label-full">🗺️ Tout</span>
+            <span class="stage-label-short">All</span>
+          </button>
+          <button class="stage-btn" data-stage="1">
+            <span class="stage-dot" style="background:#06b6d4;"></span>
+            <span class="stage-label-full">J1</span>
+            <span class="stage-label-short">J1</span>
+          </button>
+          <button class="stage-btn" data-stage="2">
+            <span class="stage-dot" style="background:#10b981;"></span>
+            <span class="stage-label-full">J2</span>
+            <span class="stage-label-short">J2</span>
+          </button>
+          <button class="stage-btn" data-stage="3">
+            <span class="stage-dot" style="background:#f59e0b;"></span>
+            <span class="stage-label-full">J3</span>
+            <span class="stage-label-short">J3</span>
+          </button>
+          <button class="stage-btn" data-stage="4">
+            <span class="stage-dot" style="background:#8b5cf6;"></span>
+            <span class="stage-label-full">J4</span>
+            <span class="stage-label-short">J4</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="profile-stats-chips">
+        <span class="chip">Dist: <strong id="dock-dist">—</strong></span>
+        <span class="chip">D+: <strong id="dock-dplus">—</strong></span>
+        <span class="chip">D-: <strong id="dock-dminus">—</strong></span>
+        <span class="chip">Alt: <strong id="dock-range">—</strong></span>
+        <span class="chip">⏱️ <strong id="dock-time">—</strong></span>
+      </div>
+    </div>
+    <div class="profile-chart-wrap">
+      <canvas id="profile-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       1ST-PERSON WALKER HUD
+       ===================================================================== -->
+  <div id="walker-hud" class="walker-hud glass-panel" style="display:none;">
+    <div class="walker-hud-top">
+      <div class="walker-hud-title">
+        🚶 Mode Randonneur Immersif
+        <span class="badge" style="font-size:10px;" id="walker-km">Km 0.0</span>
+      </div>
+      <div class="walker-hud-chips">
+        <span class="chip">Alt: <strong id="walker-alt">—</strong></span>
+        <span class="chip" id="walker-slope">Pente: —°</span>
+        <span class="chip" id="walker-heading">Cap: —°</span>
+        <span class="chip">👣 <strong id="walker-steps">0</strong> pas</span>
+        <span class="chip">🔥 <strong id="walker-cal">0</strong> kcal</span>
+        <span class="chip">📍 <strong id="walker-remaining">—</strong> restant</span>
+      </div>
+    </div>
+    <div class="walker-hud-slider-row">
+      <input type="range" id="walker-progress" min="0" max="100" value="0" step="0.1"/>
+    </div>
+    <div class="walker-hud-controls">
+      <button class="btn" id="btn-walker-prev" style="font-size:11px;padding:5px 10px;">⬅️ Préc.</button>
+      <button class="btn" id="btn-walker-play" style="font-size:11px;padding:5px 10px;">⏯️ Marche Auto</button>
+      <button class="btn" id="btn-walker-next" style="font-size:11px;padding:5px 10px;">Suiv. ➡️</button>
+      <button class="btn" id="btn-exit-walker" style="font-size:11px;padding:5px 10px;color:#f87171;border-color:#f87171;">✕ Quitter</button>
+      <span class="walker-hint">W/S = Avant/Arrière · Esc = Sortir</span>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       DRONE LOOP FLIGHT HUD
+       ===================================================================== -->
+  <div id="drone-loop-hud" class="drone-loop-hud glass-panel" style="display:none;">
+    <div class="drone-hud-header">
+      <div class="drone-hud-title">
+        <span class="drone-pulse-icon">🚁</span>
+        <span id="drone-loop-name">Survol Drone 3D</span>
+      </div>
+      <button id="btn-stop-drone-loop" class="drone-close-btn" title="Arrêter le survol">✕</button>
+    </div>
+    <div class="drone-hud-progress-bar">
+      <div id="drone-loop-progress" class="drone-hud-progress-fill" style="width:0%;"></div>
+    </div>
+    <div class="drone-hud-stats">
+      <div class="drone-stat-item">
+        <span class="drone-stat-lbl">Progression</span>
+        <span class="drone-stat-val" id="drone-loop-km">0.0 / 0.0 km</span>
+      </div>
+      <div class="drone-stat-item">
+        <span class="drone-stat-lbl">Altitude</span>
+        <span class="drone-stat-val" id="drone-loop-alt">0 m</span>
+      </div>
+      <div class="drone-stat-item">
+        <span class="drone-stat-lbl">Pente</span>
+        <span class="drone-stat-val" id="drone-loop-slope">0°</span>
+      </div>
+    </div>
+    <div class="drone-hud-controls">
+      <button class="btn" id="btn-pause-drone-loop" title="Mettre en pause">⏸️ Pause</button>
+      <button class="btn" id="btn-speed-drone-loop" title="Accélérer le vol">⚡ 1x</button>
+    </div>
+  </div>
+
+  <!-- Floating Zen Exit Button -->
+  <button id="zen-exit-btn" class="zen-exit-btn" title="Quitter le mode Plein Écran [Échap]">
+    ⛶ Quitter Plein Écran (Échap)
+  </button>
+
+  <!-- =====================================================================
+       MODALS
+       ===================================================================== -->
+
+  <!-- Rich POI Modal -->
+  <div id="poi-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span id="poi-modal-category" class="modal-category-badge">
+          <span id="poi-modal-icon">📍</span>
+          <span id="poi-modal-cat-name">Point d'intérêt</span>
+        </span>
+        <button class="modal-close-btn" id="btn-close-poi-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-title-row">
+          <h2 class="modal-title" id="poi-modal-title">—</h2>
+          <span class="modal-elevation-badge" id="poi-modal-ele">— m</span>
+        </div>
+        <div class="modal-stage-tag" id="poi-modal-stage"></div>
+        <div class="modal-water-card" id="poi-modal-water-card">
+          <div class="water-header">💧 Eau</div>
+          <div class="water-desc" id="poi-modal-water">—</div>
+        </div>
+        <div class="modal-info-grid">
+          <div class="info-block">
+            <span class="info-label">Coordonnées GPS</span>
+            <span class="info-val" id="poi-modal-coords">—</span>
+          </div>
+          <div class="info-block">
+            <span class="info-label">Altitude (DEM)</span>
+            <span class="info-val" id="poi-modal-alt">—</span>
+          </div>
+        </div>
+        <div class="modal-section">
+          <span class="section-subtitle">Description</span>
+          <p class="modal-desc" id="poi-modal-desc">—</p>
+        </div>
+        <div class="modal-tip-box" id="poi-modal-tip"></div>
+        <div class="modal-features-wrap">
+          <span class="section-subtitle">Caractéristiques</span>
+          <div class="modal-features" id="poi-modal-features"></div>
+        </div>
+      </div>
+      <div class="modal-footer no-print">
+        <button class="btn" id="btn-poi-fly">🎯 Voler vers</button>
+        <button class="btn btn-primary" id="btn-poi-dismiss">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Topoguide Modal -->
+  <div id="topoguide-modal" class="modal-overlay" style="display:none;">
+    <div class="topoguide-container">
+      <div class="topoguide-header">
+        <div class="topoguide-title-wrap">
+          <h2>🗺️ Guide Topographique – Grand Tour de Zaghfouland & Itzer</h2>
+          <p class="topoguide-subtitle">Moyen Atlas Oriental · Maroc · 4 Étapes · 105 km</p>
+        </div>
+        <div class="topoguide-actions no-print">
+          <button class="btn" id="btn-print-topoguide">🖨️ Imprimer</button>
+          <button class="modal-close-btn" id="btn-close-topoguide">✕</button>
+        </div>
+      </div>
+      <div class="topoguide-content" id="topoguide-content"></div>
+    </div>
+  </div>
+
+  <!-- Weather Modal -->
+  <div id="weather-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card weather-modal-card">
+      <div class="modal-header">
+        <span style="font-weight:700;font-size:15px;">🌤️ Météo Haute Montagne Atlas</span>
+        <button class="modal-close-btn" id="btn-close-weather">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="weather-location-tabs">
+          <button class="weather-tab active" data-location="itzer">
+            <span>⛺ Itzer – Vallée</span>
+            <small>Camp de base · 1 665 m</small>
+          </button>
+          <button class="weather-tab" data-location="zad">
+            <span>🏔️ Col du Zad – Crêtes</span>
+            <small>Sommets · 2 178–2 388 m</small>
+          </button>
+        </div>
+        <div class="weather-source-badge" id="weather-source-badge">
+          <span class="source-dot offline"></span>
+          <span id="weather-source-text">Mode Hors-Ligne (Données météo réelles Moyen Atlas)</span>
+        </div>
+        <div class="weather-hero-card">
+          <div>
+            <div class="weather-hero-temp" id="weather-current-temp">—°C</div>
+            <div class="weather-hero-felt" id="weather-current-felt">Ressenti —°C</div>
+            <div class="weather-hero-desc" id="weather-current-desc">—</div>
+          </div>
+          <div class="weather-hero-icon" id="weather-hero-icon">🌤️</div>
+        </div>
+        <div class="weather-gradient-card">
+          <div class="gradient-header">
+            <span>📊 Différentiel Thermique Vallée → Crêtes</span>
+            <span id="weather-temp-diff">—</span>
+          </div>
+        </div>
+        <div class="weather-metrics-grid">
+          <div class="weather-metric-box">
+            <div class="w-metric-icon">💨</div>
+            <div class="w-metric-info">
+              <span class="w-metric-lbl">Vent / Rafales</span>
+              <span class="w-metric-val" id="weather-wind">—</span>
+            </div>
+          </div>
+          <div class="weather-metric-box">
+            <div class="w-metric-icon">🌧️</div>
+            <div class="w-metric-info">
+              <span class="w-metric-lbl">Prob. Pluie</span>
+              <span class="w-metric-val" id="weather-rain">—</span>
+            </div>
+          </div>
+          <div class="weather-metric-box">
+            <div class="w-metric-icon">💧</div>
+            <div class="w-metric-info">
+              <span class="w-metric-lbl">Humidité</span>
+              <span class="w-metric-val" id="weather-humidity">—</span>
+            </div>
+          </div>
+          <div class="weather-metric-box">
+            <div class="w-metric-icon">☀️</div>
+            <div class="w-metric-info">
+              <span class="w-metric-lbl">Indice UV</span>
+              <span class="w-metric-val" id="weather-uv">—</span>
+            </div>
+          </div>
+        </div>
+        <div class="weather-advisory-box">
+          <div class="advisory-title">⚠️ Conseil Sécurité Montagne</div>
+          <p id="weather-advisory-text">—</p>
+        </div>
+        <div class="forecast-grid" id="forecast-grid"></div>
+      </div>
+      <div class="modal-footer no-print">
+        <button class="btn" id="btn-refresh-weather">🔄 Actualiser</button>
+        <button class="btn" id="btn-weather-sync-water">💧 Syncer Eau</button>
+        <button class="modal-close-btn" id="btn-close-weather-modal" style="border-radius:8px;width:auto;padding:6px 12px;">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Water Calculator Modal -->
+  <div id="water-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span style="font-weight:700;font-size:15px;">💧 Calculateur d'Hydratation Atlas</span>
+        <button class="modal-close-btn" id="btn-close-water-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="section-title" style="margin-bottom:8px;">Sélectionnez votre étape :</div>
+        <div class="calc-stage-btns">
+          <button class="calc-stage-btn active" data-stage="1">J1 – Cédraie</button>
+          <button class="calc-stage-btn" data-stage="2">J2 – Col du Zad</button>
+          <button class="calc-stage-btn" data-stage="3">J3 – Plateau Arid</button>
+          <button class="calc-stage-btn" data-stage="4">J4 – Retour Itzer</button>
+        </div>
+
+        <div id="calc-dry-alert" class="dry-stage-alert" style="display:none;">
+          <span class="alert-icon">🚨</span>
+          <div class="alert-content">
+            <strong>ÉTAPE SÈCHE – Plateau d'Arid !</strong><br/>
+            Aucune source d'eau sur tout le Plateau d'Arid (J3).
+            Prévoyez impérativement <strong>4 litres minimum</strong> par personne depuis le Col du Zad.
+          </div>
+        </div>
+
+        <div class="calc-controls-grid">
+          <div class="calc-control-group">
+            <div class="control-header"><span>🌡️ Température prévue</span><span class="control-val" id="val-calc-temp">26°C</span></div>
+            <input type="range" id="slider-calc-temp" min="5" max="42" step="1" value="26"/>
+          </div>
+          <div class="calc-control-group">
+            <div class="section-title" style="margin-bottom:6px;">Allure de marche</div>
+            <div style="display:flex;gap:6px;">
+              <button class="calc-pace-btn btn active" data-pace="3.5" style="flex:1;font-size:11px;">🐢 Lent (3.5)</button>
+              <button class="calc-pace-btn btn" data-pace="4.2" style="flex:1;font-size:11px;">🚶 Moyen (4.2)</button>
+              <button class="calc-pace-btn btn" data-pace="5.0" style="flex:1;font-size:11px;">🏃 Rapide (5.0)</button>
+            </div>
+          </div>
+          <div class="calc-control-group">
+            <div class="section-title" style="margin-bottom:6px;">Poids du sac à dos</div>
+            <div style="display:flex;gap:6px;">
+              <button class="calc-pack-btn btn" data-pack="light" style="flex:1;font-size:11px;">🪶 Léger</button>
+              <button class="calc-pack-btn btn active" data-pack="medium" style="flex:1;font-size:11px;">🎒 Moyen</button>
+              <button class="calc-pack-btn btn" data-pack="heavy" style="flex:1;font-size:11px;">🧱 Lourd</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.3);border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Quantité recommandée</div>
+          <div style="font-size:28px;font-weight:800;color:#06b6d4;" id="calc-result-liters">— Litres / personne</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px;" id="calc-result-breakdown">—</div>
+        </div>
+
+        <div style="background:rgba(30,41,59,0.5);border-radius:8px;padding:10px;margin-top:10px;font-size:11px;color:#94a3b8;" id="calc-water-status-text">—</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-calc-apply">✓ Appliquer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Share Modal -->
+  <div id="share-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card" style="max-width:400px;">
+      <div class="modal-header">
+        <span style="font-weight:700;font-size:15px;">📲 Partager la Carte</span>
+        <button class="modal-close-btn" id="btn-close-share">✕</button>
+      </div>
+      <div class="modal-body" style="align-items:center;text-align:center;gap:18px;">
+        <canvas id="qr-code-canvas" width="180" height="180" style="border-radius:8px;border:1px solid rgba(255,255,255,0.1);"></canvas>
+        <div style="width:100%;">
+          <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">Lien direct vers la carte interactive :</div>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="share-url-input" readonly style="flex:1;font-size:11px;background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 8px;color:#f8fafc;font-family:monospace;"/>
+            <button class="btn btn-primary" id="btn-copy-url" style="font-size:11px;">Copier</button>
+          </div>
+          <div id="copy-feedback" style="display:none;color:#10b981;font-size:11px;margin-top:4px;">✓ Lien copié dans le presse-papiers !</div>
+          <!-- Social sharing buttons Q15 -->
+          <div class="social-share-row" style="margin-top:12px;">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">Partager via :</div>
+            <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+              <button class="btn social-share-btn" id="btn-share-whatsapp" style="background:rgba(37,211,102,0.15);border-color:rgba(37,211,102,0.4);">
+                📱 WhatsApp
+              </button>
+              <button class="btn social-share-btn" id="btn-share-twitter" style="background:rgba(29,161,242,0.15);border-color:rgba(29,161,242,0.4);">
+                🐦 X / Twitter
+              </button>
+              <button class="btn social-share-btn" id="btn-share-instagram" style="background:rgba(225,48,108,0.15);border-color:rgba(225,48,108,0.4);">
+                📸 Instagram
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-close-share-modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ArcGIS Elevation Panel -->
+  <div id="arcgis-elevation-panel" class="arcgis-elevation-panel glass-panel" style="display:none;">
+    <div style="font-size:11px;font-weight:700;color:#06b6d4;margin-bottom:6px;">⛰️ Élévation au clic (ArcGIS)</div>
+    <div id="arcgis-elevation-value" style="font-size:22px;font-weight:800;color:#fff;">—</div>
+    <div id="arcgis-click-coords" style="font-size:10px;color:#94a3b8;font-family:monospace;margin-top:2px;">—</div>
+  </div>
+
+  <!-- =====================================================================
+       SCRIPTS
+       ===================================================================== -->
+  <script src="lib/three.min.js"></script>
+  <script src="lib/OrbitControls.js"></script>
+  <script src="lib/maplibre-gl.js"></script>
+  <script src="lib/chart.min.js"></script>
+  <script src="lib/qrcode.min.js"></script>
+  <script src="web_data.js?v=3.0"></script>
+  <script src="textures_data.js"></script>
+  <script src="app.js?v=3.0"></script>
+
+</body>
+</html>

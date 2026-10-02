@@ -1,0 +1,15 @@
+*.py
+*.bat
+*.log
+*.png
+!icon-192.png
+!icon-512.png
+!route_overlay.png
+!dem_terrarium_z12.png
+__pycache__
+.git
+.github
+test_*
+render_check.png
+DEPLOY_GUIDE.md
+.cdp_temp
